@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام الموظفين - المركز الطبي</title>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <style>
+    * { box-sizing: border-box; margin:0; padding:0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #f4f7f6; padding: 15px; }
+    .card { background: white; padding: 20px; border-radius: 10px; max-width: 600px; margin: 0 auto 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    h2, h3 { text-align: center; color: #2c3e50; margin-bottom: 15px; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+    input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+    button { width: 100%; padding: 12px; background: #27ae60; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 8px; font-size: 15px; }
+    button.secondary { background: #2980b9; }
+    button.danger { background: #c0392b; }
+    button.warning { background: #f39c12; }
+    .hidden { display: none; }
+    .patient-item { background: #fff; border: 1px solid #ddd; padding: 12px; border-radius: 6px; margin-bottom: 10px; }
+    .nav-btn { background: #34495e; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. واجهة تسجيل الدخول بالرمز السري -->
+  <div id="loginPage" class="card">
+    <h2>تسجيل الدخول</h2>
+    <div class="form-group">
+      <label>الرقم السري (PIN):</label>
+      <input type="password" id="loginPin" placeholder="أدخل الرقم السري">
+    </div>
+    <button onclick="login()">تسجيل الدخول</button>
+    <p style="text-align:center; margin-top:15px; font-size:14px; color:#666;">
+      حساب جديد؟ <a href="#" onclick="showActivationForm()" style="color:#2980b9; font-weight:bold;">طلب التفعيل</a>
+    </p>
+  </div>
+
+  <!-- 2. واجهة طلب التفعيل -->
+  <div id="activationPage" class="card hidden">
+    <h2>طلب تفعيل عضوية</h2>
+    <div class="form-group">
+      <label>اسم الموظف:</label>
+      <input type="text" id="empName">
+    </div>
+    <div class="form-group">
+      <label>رقم الجوال:</label>
+      <input type="tel" id="empPhone">
+    </div>
+    <div class="form-group">
+      <label>الوظيفة:</label>
+      <input type="text" id="empJob">
+    </div>
+    <button onclick="submitActivation()">طلب تفعيل العضوية</button>
+    <button class="secondary" onclick="showLoginPage()">الرجوع للدخول</button>
+  </div>
+
+  <!-- 3. واجهة كتابة كود التحقق -->
+  <div id="verifyPage" class="card hidden">
+    <h2>تأكيد كود التحقق</h2>
+    <p style="font-size:13px; color:#666; text-align:center; margin-bottom:10px;">تم إرسال طلبك للإدارة. أدخل كود التحقق (6 أرقام) بعد استلامه:</p>
+    <div class="form-group">
+      <label>كود التحقق (الرقم السري الخاص بك):</label>
+      <input type="text" id="verifyCode" maxlength="6" placeholder="******">
+    </div>
+    <button onclick="confirmVerification()">تأكيد ودخول تلقائي</button>
+  </div>
+
+  <!-- 4. الواجهة الرئيسية للموظف -->
+  <div id="mainDashboard" class="card hidden">
+    <h3 id="welcomeMsg">أهلاً بك</h3>
+    <button class="nav-btn" onclick="showSection('addPatientSec')">إضافة مريض جديد</button>
+    <button class="nav-btn" onclick="showSection('listPatientsSec')">كشف المرضى المقرر لهم عملية</button>
+    <button class="nav-btn" onclick="showSection('statusPatientsSec')">تأكيد / تأجيل / إلغاء عملية</button>
+    <button class="nav-btn" onclick="showSection('circularsSec')">التعاميم والرسائل</button>
+    <button class="danger" onclick="logout()">تسجيل خروج</button>
+  </div>
+
+  <!-- قسم إضافة مريض -->
+  <div id="addPatientSec" class="card hidden">
+    <h3>إضافة مريض جديد</h3>
+    <div class="form-group"><label>رقم المريض (تلقائي):</label><input type="text" id="pId" readonly></div>
+    <div class="form-group"><label>اسم المريض:</label><input type="text" id="pName"></div>
+    <div class="form-group"><label>رقم الجوال / الثابت:</label><input type="tel" id="pPhone"></div>
+    <div class="form-group">
+      <label>نوع الهوية:</label>
+      <select id="pIdType" onchange="toggleOtherId(this)">
+        <option value="بطاقة شخصية">بطاقة شخصية</option>
+        <option value="جواز سفر">جواز سفر</option>
+        <option value="عقد جواز">عقد جواز</option>
+        <option value="أخرى">أخرى</option>
+      </select>
+    </div>
+    <div class="form-group hidden" id="otherIdGrp"><label>اكتب نوع الهوية:</label><input type="text" id="pOtherId"></div>
+    <div class="form-group"><label>رقم الهوية:</label><input type="text" id="pIdNum"></div>
+    <div class="form-group"><label>المنطقة:</label><input type="text" id="pRegion"></div>
+    <div class="form-group">
+      <label>العين المصابة:</label>
+      <select id="pEye">
+        <option value="R">العين اليمنى (R)</option>
+        <option value="L">العين اليسرى (L)</option>
+        <option value="R+L">العينين (R+L)</option>
+      </select>
+    </div>
+    <div class="form-group"><label>رقم العدسة:</label><input type="text" id="pLens"></div>
+    <div class="form-group"><label>تاريخ الطلب:</label><input type="date" id="pReqDate"></div>
+    <div class="form-group">
+      <label>هل أجرى عملية سابقاً؟</label>
+      <select id="pPrevOp"><option value="لا">لا</option><option value="نعم">نعم</option></select>
+    </div>
+    <div class="form-group"><label>ملاحظات:</label><textarea id="pNotes"></textarea></div>
+    
+    <button onclick="savePatient()">إضافة مريض</button>
+    <button class="secondary" onclick="backToDash()">رجوع القائمة الرئيسية</button>
+  </div>
+
+  <!-- قسم كشف المرضى المقرر لهم عملية -->
+  <div id="listPatientsSec" class="card hidden">
+    <h3>كشف العمليات المقررة</h3>
+    <div class="form-group"><label>من تاريخ:</label><input type="date" id="fromDate"></div>
+    <div class="form-group"><label>إلى تاريخ:</label><input type="date" id="toDate"></div>
+    <button onclick="filterPatients()">بحث عن كشف المواعيد</button>
+    <div id="patientsResults" style="margin-top:15px;"></div>
+    <button class="secondary" onclick="backToDash()">رجوع</button>
+  </div>
+
+  <!-- قسم تأكيد / تأجيل / إلغاء عملية -->
+  <div id="statusPatientsSec" class="card hidden">
+    <h3>تحديث حالة عملية</h3>
+    <div class="form-group">
+      <input type="text" id="searchPatientQuery" placeholder="ابحث باسم المريض أو رقم الجوال...">
+    </div>
+    <button onclick="searchForStatus()">بحث</button>
+    <div id="statusSearchResults" style="margin-top:15px;"></div>
+    <button class="secondary" onclick="backToDash()">رجوع</button>
+  </div>
+
+  <!-- قسم التعاميم -->
+  <div id="circularsSec" class="card hidden">
+    <h3>التعاميم والإشعارات</h3>
+    <div id="circularsList"></div>
+    <button class="secondary" onclick="backToDash()">رجوع</button>
+  </div>
+
+<script>
+  // تهيئة Firebase Realtime Database
+  const firebaseConfig = { databaseURL: "https://yigd8888-default-rtdb.firebaseio.com/" };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // تم تضمين الرابط الخادمي الخاص بك هنا
+  const APPS_SCRIPT_URL = "Https://script.google.com/macros/s/AKfycbw-fqd6nws79NBDRFr5sMKAlsZ69VXiVx8-2VFQNMKMmZENHCcdYu1VaqDRetGaWy_4aA/exec";
+
+  // الدخول التلقائي الحافظ للرمز
+  window.onload = function() {
+    const savedPin = localStorage.getItem('empPin');
+    const savedName = localStorage.getItem('empName');
+    if (savedPin && savedName) {
+      openDashboard(savedName);
+    }
+  }
+
+  function showActivationForm() { document.getElementById('loginPage').classList.add('hidden'); document.getElementById('activationPage').classList.remove('hidden'); }
+  function showLoginPage() { document.getElementById('activationPage').classList.add('hidden'); document.getElementById('loginPage').classList.remove('hidden'); }
+
+  // 1. تسجيل الدخول
+  function login() {
+    const pin = document.getElementById('loginPin').value;
+    db.ref('employees').once('value', snapshot => {
+      let found = false;
+      snapshot.forEach(child => {
+        const emp = child.val();
+        if (emp.pincode === pin && emp.status === 'مفعل') {
+          found = true;
+          localStorage.setItem('empPin', pin);
+          localStorage.setItem('empName', emp.name);
+          openDashboard(emp.name);
+        }
+      });
+      if(!found) alert('الرقم السري غير صحيح أو الحساب لم يتم تفعيله بعد!');
+    });
+  }
+
+  // 2. طلب تفعيل
+  function submitActivation() {
+    const name = document.getElementById('empName').value;
+    const phone = document.getElementById('empPhone').value;
+    const job = document.getElementById('empJob').value;
+    const pincode = Math.floor(100000 + Math.random() * 900000).toString(); // كود من 6 أرقام
+
+    if(!name || !phone) { alert('يرجى كتابة كافة البيانات'); return; }
+
+    const data = { name, phone, job, pincode, status: 'معلق' };
+    db.ref('employees/' + pincode).set(data);
+
+    // إرسال لـ Apps Script للتليجرام وشيت الموظفين
+    fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "requestActivation", ...data })
+    });
+
+    localStorage.setItem('tempPin', pincode);
+    localStorage.setItem('tempName', name);
+
+    document.getElementById('activationPage').classList.add('hidden');
+    document.getElementById('verifyPage').classList.remove('hidden');
+  }
+
+  function confirmVerification() {
+    const code = document.getElementById('verifyCode').value;
+    const tempPin = localStorage.getItem('tempPin');
+    const tempName = localStorage.getItem('tempName');
+
+    if (code === tempPin) {
+      db.ref('employees/' + tempPin).once('value', snap => {
+        if (snap.val() && snap.val().status === 'مفعل') {
+          localStorage.setItem('empPin', tempPin);
+          localStorage.setItem('empName', tempName);
+          openDashboard(tempName);
+        } else {
+          alert('الحساب لا يزال قيد التفعيل من الإدارة. حاول مجدداً لاحقاً.');
+        }
+      });
+    } else {
+      alert('كود التحقق غير صحيح');
+    }
+  }
+
+  function openDashboard(name) {
+    document.querySelectorAll('.card').forEach(c => c.classList.add('hidden'));
+    document.getElementById('welcomeMsg').innerText = "مرحباً بك: " + name;
+    document.getElementById('mainDashboard').classList.remove('hidden');
+  }
+
+  function showSection(secId) {
+    document.getElementById('mainDashboard').classList.add('hidden');
+    document.getElementById(secId).classList.remove('hidden');
+    if(secId === 'addPatientSec') generateNextPatientId();
+    if(secId === 'circularsSec') loadCirculars();
+  }
+
+  function backToDash() {
+    document.querySelectorAll('.card').forEach(c => c.classList.add('hidden'));
+    document.getElementById('mainDashboard').classList.remove('hidden');
+  }
+
+  function toggleOtherId(select) {
+    document.getElementById('otherIdGrp').classList.toggle('hidden', select.value !== 'أخرى');
+  }
+
+  function generateNextPatientId() {
+    db.ref('patients').once('value', snap => {
+      const count = snap.numChildren() + 1001;
+      document.getElementById('pId').value = count;
+    });
+  }
+
+  // 3. حفظ مريض جديد
+  function savePatient() {
+    const pIdTypeVal = document.getElementById('pIdType').value;
+    const patientData = {
+      patientId: document.getElementById('pId').value,
+      name: document.getElementById('pName').value,
+      phone: document.getElementById('pPhone').value,
+      idType: pIdTypeVal === 'أخرى' ? document.getElementById('pOtherId').value : pIdTypeVal,
+      idNum: document.getElementById('pIdNum').value,
+      region: document.getElementById('pRegion').value,
+      eye: document.getElementById('pEye').value,
+      lens: document.getElementById('pLens').value,
+      requestDate: document.getElementById('pReqDate').value,
+      prevOp: document.getElementById('pPrevOp').value,
+      notes: document.getElementById('pNotes').value,
+      status: "مجدول"
+    };
+
+    if(!patientData.name || !patientData.phone) { alert('يرجى إدخال البيانات الأساسية'); return; }
+
+    // حفظ في Firebase
+    db.ref('patients/' + patientData.patientId).set(patientData);
+
+    // تزامن مع Sheets
+    fetch(APPS_SCRIPT_URL, {
+      method: "POST", mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "addPatient", ...patientData })
+    });
+
+    alert("تمت إضافة المريض بنجاح!");
+    backToDash();
+  }
+
+  // 4. كشف وحالة العمليات
+  function searchForStatus() {
+    const q = document.getElementById('searchPatientQuery').value;
+    const div = document.getElementById('statusSearchResults');
+    div.innerHTML = "";
+    db.ref('patients').once('value', snap => {
+      snap.forEach(child => {
+        const p = child.val();
+        if(p.name.includes(q) || p.phone.includes(q)) {
+          div.innerHTML += `
+            <div class="patient-item">
+              <p><strong>${p.name}</strong> (${p.phone})</p>
+              <p>الحالة: ${p.status}</p>
+              <button onclick="updatePatientOpStatus('${p.patientId}', '${p.name}', 'تم التنفيذ')">تم التنفيذ</button>
+              <button class="warning" onclick="updatePatientOpStatus('${p.patientId}', '${p.name}', 'تأجيل')">تأجيل</button>
+              <button class="danger" onclick="updatePatientOpStatus('${p.patientId}', '${p.name}', 'إلغاء')">إلغاء</button>
+            </div>
+          `;
+        }
+      });
+    });
+  }
+
+  function updatePatientOpStatus(pId, name, status) {
+    let detail = "";
+    if(status === 'تم التنفيذ') detail = prompt("أدخل موعد التنفيذ:");
+    else detail = prompt("أدخل سبب/تفاصيل " + status + ":");
+
+    if(!detail) return;
+
+    db.ref('patients/' + pId).update({ status: status, detail: detail });
+
+    fetch(APPS_SCRIPT_URL, {
+      method: "POST", mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "updateStatus", patientId: pId, name: name, status: status, detail: detail })
+    });
+
+    alert("تم تحديث الحالة وإشعار الإدارة والتليجرام!");
+    searchForStatus();
+  }
+
+  function loadCirculars() {
+    const div = document.getElementById('circularsList');
+    div.innerHTML = "";
+    db.ref('circulars').once('value', snap => {
+      snap.forEach(child => {
+        const c = child.val();
+        div.innerHTML += `<div class="patient-item"><p><strong>${c.date}:</strong> ${c.text}</p></div>`;
+      });
+    });
+  }
+
+  function logout() {
+    localStorage.clear();
+    location.reload();
+  }
+</script>
+</body>
+</html>
